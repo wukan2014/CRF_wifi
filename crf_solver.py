@@ -29,7 +29,7 @@ class CRF_SOLVER(object):
     def rss_range(self, val):
         return int(np.floor(( val - self.rss_start) / (self.rss_end - self.rss_start ) * self.nbins )) 
         
-    def objective_and_gradients_batch(self, seqs, labels, w, flag):
+    def objective_and_gradients_batch(self, w, seqs, labels, flag):
         (sample_len, dim) = np.shape( seqs )
         logl = 0.
         sigma2 = 10.
@@ -79,21 +79,22 @@ class CRF_SOLVER(object):
         for k in xrange(len(g)):
             g[k] += 2* lambda_* w[k]
         logl += lambda_*sum(w**2)
-        return g, logl                
+        return logl,g               
     def objective(self, seqs, labels, w):
-        g, logp = self.objective_and_gradients_batch(seq, labels, w, 2)
+        logp, g = self.objective_and_gradients_batch(seq, labels, w, 2)
         return logp
     
     def gradient(self, seqs, labels, w):
-        g, logp = self.objective_and_gradients_batch(seq, labels, w, 1)
+        logp,g = self.objective_and_gradients_batch(seq, labels, w, 1)
         return g
 
     def trainer(self, trainX, trainY):
         (num_samples, dim) = np.shape(trainX)
         (_, voxel_num) = np.shape(trainY)
-        w  = self.BFGS(dim* 2, trainX, trainY)
+        #w  = self.BFGS(dim* 2, trainX, trainY)
+        w = np.zeros((dim*2, 1))
+        [w,f,d] = op.fmin_l_bfgs_b(self.objective_and_gradients_batch, w, fprime = None, args=(trainX, trainY, 1), disp=2 )
         pdb.set_trace()
-        #[w,f,d] = op.fmin_l_bfgs_b(self.objective_and_gradients_batch, np.zeros(dim**2, 1),None, args=(trainX, trainY, np.zeros(dim**2, 1)), disp=2 )
         print 'minimum_function: %f'%f
         print w
 
@@ -105,9 +106,7 @@ class CRF_SOLVER(object):
         d = np.ones(D)
         trainX = trainX[1:50]
         trainY = trainY[1:50]
-        pdb.set_trace()
         g_old, l_old = self.objective_and_gradients_batch(trainX, trainY, w_new, 0)
-        pdb.set_trace()
         while num_iter == 1 or sum(abs(d)) < epsilon:
             w_old, B_old = w_new, B_new
             d = -np.dot(np.linalg.inv(B_old), g_old)
@@ -118,13 +117,11 @@ class CRF_SOLVER(object):
             g_new, l_new = self.objective_and_gradients_batch(trainX, trainY, w_new, 0)
             y = g_new - g_old
             # tmp terms: 
-            pdb.set_trace()
             y = y[:,np.newaxis]
             d = d[:,np.newaxis]
             dyt = np.dot(d, y.transpose())
             ddt = np.dot(d, d.transpose())
             ytd = np.dot(y.transpose(), d)
-            pdb.set_trace()
             if ytd == 0:
                 ytd = 1
             eigvec = np.identity(D) - dyt/ytd
@@ -261,7 +258,7 @@ class CRF_SOLVER(object):
                     #unary_sum = self.unary_sum(w[: num_unary_features* states], unary_features[cur_nodes], states, curl)
                     #pairwise_sum = self.pairwise_sum(w[num_unary_feature,:], sub_edge_features, sub_edges, states, labels)
                     p_sum = self.pairwise_sum(w[num_unary_features:], seq, sub_edges, label)
-                    print 'd: %d, u_sum: %f, p_sum: %f'%(d, u_sum, p_sum)
+#print 'd: %d, u_sum: %f, p_sum: %f'%(d, u_sum, p_sum)
                     Md_tmp[i][j] = np.exp(-(u_sum + p_sum))
             Md.append(np.array(Md_tmp)) 
             pre_nodes = cur_nodes
@@ -346,9 +343,10 @@ class CRF_SOLVER(object):
             ## empirical labels
             em_unary_features = self.get_unary_features(seq, cur_nodes, label)
             em_pairwise_features = self.get_pairwise_features(seq, sub_edges, label)
-            logp += sum(sum(np.multiply(w[:num_unary_features], em_unary_features)))
+
+            logp += sum([ w[k]* em_unary_features[i][k] for k in xrange(num_unary_features) for i,t in enumerate(cur_nodes) ])
             if len(sub_edges) > 0:
-                logp += sum(sum(np.multiply(w[num_unary_features:], em_pairwise_features)))
+                logp += sum([ w[k + num_unary_features]* em_pairwise_features[i][k] for k in xrange(num_pairwise_features) for i, t in enumerate(sub_edges) ])
     
             ## probability labels
             if flag != 2:
@@ -375,6 +373,7 @@ class CRF_SOLVER(object):
             pre_nodes = cur_nodes
             pre_labels = cur_labels
         return g, logp
+
 def pickle_save(fname, data):
     with open(fname, 'wb') as output:
         pickle.dump(data, output, pickle.HIGHEST_PROTOCOL)
