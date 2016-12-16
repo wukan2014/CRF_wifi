@@ -91,9 +91,9 @@ class CRF_SOLVER(object):
     def trainer(self, trainX, trainY):
         (num_samples, dim) = np.shape(trainX)
         (_, voxel_num) = np.shape(trainY)
-#w  = self.BFGS(dim* 2, trainX, trainY)
+        w  = self.BFGS(dim* 2, trainX, trainY)
         pdb.set_trace()
-        [w,f,d] = op.fmin_l_bfgs_b(self.objective_and_gradients_batch, np.zeros(dim**2, 1),None, args=(trainX, trainY, np.zeros(dim**2, 1)), disp=2 )
+        #[w,f,d] = op.fmin_l_bfgs_b(self.objective_and_gradients_batch, np.zeros(dim**2, 1),None, args=(trainX, trainY, np.zeros(dim**2, 1)), disp=2 )
         print 'minimum_function: %f'%f
         print w
 

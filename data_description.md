@@ -30,7 +30,7 @@
 ```
 - edges: BFS mapping grids to connected edges;
   * "edges" is 2D list in dimension [num_edges, 2]. Each edge is denoted by [start_grid, end_grid]
-    mapper: map voxel id back to grid index(row, col);
+- mapper: map voxel id back to grid index(row, col);
 
 #### "samples.mat"
 Train:
