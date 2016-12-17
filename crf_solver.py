@@ -79,13 +79,14 @@ class CRF_SOLVER(object):
         for k in xrange(len(g)):
             g[k] += 2* lambda_* w[k]
         logl += lambda_*sum(w**2)
-        return logl,g               
+        return logl, g
+
     def objective(self, seqs, labels, w):
         logp, g = self.objective_and_gradients_batch(seq, labels, w, 2)
         return logp
     
     def gradient(self, seqs, labels, w):
-        logp,g = self.objective_and_gradients_batch(seq, labels, w, 1)
+        logp, g = self.objective_and_gradients_batch(seq, labels, w, 1)
         return g
 
     def trainer(self, trainX, trainY):
