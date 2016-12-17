@@ -37,3 +37,7 @@ Train:
 - seq[voxel_num*sample_len*2,stream_num]:
   * concatenate RSS samples collected in different grids to a training sequence, '2' is for the static and dynamic target data collected in same voxel.
 - label[voxel_num]: label of corresponding RSS sequence.
+
+#### Test Data
+Test
+- seq[sample_len, stream_num]

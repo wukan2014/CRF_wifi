@@ -5,12 +5,16 @@ import pdb
 import itertools
 import pickle
 import sys
+import maxflow
 RELEASE = 'release'
 DEBUG = 'debug'
+if len(sys.argv) < 3:
+    print "Usage: python crf_solver.py [release/debug] [train/test]"
+    sys.exit()
+
 mode =  sys.argv[1]
-def LOG(log_level, mesg):
-    if log_level == DEBUG and mode == DEBUG:
-        print mesg
+oper = sys.argv[2]
+
 
 ITER_ROUND = 10
 class CRF_SOLVER(object):
@@ -20,6 +24,7 @@ class CRF_SOLVER(object):
         self.edges = np.array(config['edges'])
         self.mapper = np.array(config['mapper'])
         self.states = 2
+        (self.n_nodes, _) = np.shape(self.mapper)
         self._lambda = 0.5
         self.rss_start = -30
         self.rss_end = 30
@@ -32,7 +37,7 @@ class CRF_SOLVER(object):
     def objective_and_gradients_batch(self, w, seqs, labels, flag):
         (sample_len, dim) = np.shape( seqs )
         logl = 0.
-        sigma2 = 10.
+        sigma2 = 10
         lambda_ = 1./2/sigma2
         g = np.zeros(len(w))
         for i in xrange(sample_len):
@@ -69,6 +74,8 @@ class CRF_SOLVER(object):
             ## compute 
             ## compute gradient
             g_tmp,logp = self.score(w, self.grid, self.edges, self.states, cur_seq, cur_label, prod, pairwise_prod, flag)
+            print 'Loss of sample %d: %f'%(i, logp)
+            print 'sample gradient: ', g_tmp
             if mode == DEBUG:
                 pdb.set_trace()
             logl += logp + np.log(Z)
@@ -79,80 +86,20 @@ class CRF_SOLVER(object):
         for k in xrange(len(g)):
             g[k] += 2* lambda_* w[k]
         logl += lambda_*sum(w**2)
+        print 'Loss function:', logl
+        print 'Gradient:', g
+        pdb.set_trace()
         return logl,g               
-    def objective(self, seqs, labels, w):
-        logp, g = self.objective_and_gradients_batch(seq, labels, w, 2)
-        return logp
-    
-    def gradient(self, seqs, labels, w):
-        logp,g = self.objective_and_gradients_batch(seq, labels, w, 1)
-        return g
 
     def trainer(self, trainX, trainY):
         (num_samples, dim) = np.shape(trainX)
         (_, voxel_num) = np.shape(trainY)
-        #w  = self.BFGS(dim* 2, trainX, trainY)
-        w = np.zeros((dim*2, 1))
-        [w,f,d] = op.fmin_l_bfgs_b(self.objective_and_gradients_batch, w, fprime = None, args=(trainX, trainY, 1), disp=2 )
+        w = np.random.rand(dim*2, 1)
+        bounds = [(0,1)]*(dim*2)
+        [w,f,d] = op.fmin_l_bfgs_b(self.objective_and_gradients_batch, w, fprime = None, args=(trainX, trainY, 0), bounds=bounds,iprint=100 )
+        self.w = w
         pdb.set_trace()
         print 'minimum_function: %f'%f
-        print w
-
-    def BFGS(self, D, trainX, trainY, epsilon=0.001):
-        # D is 
-        w_new = np.zeros(D)
-        B_new = np.identity(D)
-        num_iter = 1
-        d = np.ones(D)
-        trainX = trainX[1:50]
-        trainY = trainY[1:50]
-        g_old, l_old = self.objective_and_gradients_batch(trainX, trainY, w_new, 0)
-        while num_iter == 1 or sum(abs(d)) < epsilon:
-            w_old, B_old = w_new, B_new
-            d = -np.dot(np.linalg.inv(B_old), g_old)
-            LOG( RELEASE, 'Round %d, error: %f'%(num_iter, sum(abs(d))))
-#mu = self.max_step(0, trainX, trainY, w_old,d)
-            mu = self.max_step(1, num_iter)
-            w_new = w_old + mu* d
-            g_new, l_new = self.objective_and_gradients_batch(trainX, trainY, w_new, 0)
-            y = g_new - g_old
-            # tmp terms: 
-            y = y[:,np.newaxis]
-            d = d[:,np.newaxis]
-            dyt = np.dot(d, y.transpose())
-            ddt = np.dot(d, d.transpose())
-            ytd = np.dot(y.transpose(), d)
-            if ytd == 0:
-                ytd = 1
-            eigvec = np.identity(D) - dyt/ytd
-            g_old = g_new
-            l_old = l_new
-            B_new = np.dot(np.dot(eigvec, B_old), eigvec) + mu * ddt / ytd
-            num_iter += 1
-        return w_new
-
-    def max_step(self, es, *args):
-        if es == 0:
-            maxl = sys.min
-            max_mu = 0
-            if len(args) < 4:
-                raise IOError
-            trainX_ = args[0]
-            trainY_ = args[1]
-            w_old = args[2]
-            d = args[3]
-            for mu in np.arange(0,1,0.1):
-                g, l = self.objective_and_gradients_batch(trainX_, trainY_, w_old + mu*d ) 
-                if l > maxl:
-                    maxl = l
-                    max_mu = mu
-        else:
-            if len(args) < 1:
-                raise IOError
-            mu_init = 1
-            num_iter = args[0]
-            max_mu = mu_init * 1./ num_iter
-        return max_mu
 
     def unary_func(self, node, dim, state, value ):
         if node < 0:
@@ -358,7 +305,7 @@ class CRF_SOLVER(object):
                         break 
                     tmp = self.vector_sum(em_pairwise_features[:,k]) 
                     for edge in sub_edges:
-                        LOG(DEBUG, 'edge [%d, %d]'%(edge[0], edge[1]))
+#LOG(DEBUG, 'edge [%d, %d]'%(edge[0], edge[1]))
                         for state_id in xrange(states**2):
                             state1 = state_id / states
                             state2 = state_id % states
@@ -369,10 +316,114 @@ class CRF_SOLVER(object):
                             edge_id = np.where(np.all(edges == edge, axis = 1))[0][0]    
                             tmp -= cur_f[0][k]* pairwise_prod[state_id][edge_id]
                     g[k + num_unary_features] += tmp
-                    LOG(DEBUG, 'feature %d, gradient %lf'%(k,tmp))
+#                    LOG(DEBUG, 'feature %d, gradient %lf'%(k,tmp))
             pre_nodes = cur_nodes
             pre_labels = cur_labels
         return g, logp
+
+    def predict(self, testX):
+        y_pred = self.map_estimate(testX)
+        return y_pred
+ 
+    def map_estimate(self, seq):
+        (sample_len, dim) = np.shape(seq)
+        dataX = []
+        edge_dict = {}
+        max_iter = 100
+        for i, edge in enumerate(self.edges):
+            if edge[0] not in edge_dict.keys():
+               edge_dict[ edge[0] ] = [(i, edge)]
+            else:
+               edge_dict[ edge[0] ] = edge_dict[ edge[0] ] + [(i, edge)]
+                   
+        for i in xrange(sample_len):
+            labels = np.array([ int(np.random.random()*self.states) for k in xrange(self.n_nodes)]) 
+            # build matrix D
+            D = np.array([[ np.squeeze(self.get_unary_features(seq[i], [node] , [label])) for label in xrange(self.states)]for node in xrange(self.n_nodes)])
+            # build matrix v
+            v = np.array([[ [ [ self.pairwise_func(t, j, [l,k], seq[i][j])
+            for j in xrange(dim)]
+                    for l in xrange(self.states)] 
+            for k in xrange(self.states) ]
+            for t in self.edges])
+            labels = self.cv_alpha_extension(D, self.w, max_iter, edge_dict, v, labels)
+            print labels
+            pdb.set_trace()
+
+    def cv_alpha_extension(self, D, w, max_iter, edge_dict, v, labels):
+        '''
+            D: unary cost for each label for different nodes, shape of (num_nodes,num_labels, num_features)
+            edge_dict { key:id of first_node, value: (id in edge feature array 'v', list of edges starting with first_node) }
+            v: edge feature array, shape of ( id, n_states, n_states features, )
+        '''
+        assert labels.shape[0] == D.shape[0]
+        assert D.shape[1] == self.states
+
+        n_nodes = labels.shape[0] 
+        num_unary_feature = D.shape[2]
+        num_pairwise_feature = v.shape[3]
+        success = 0
+        best_energy = sys.maxint
+        for it in xrange(max_iter):
+#print 'Iteration %d'%it
+            # Process the neighbors
+            for alpha in xrange(self.states):
+                print 'alpha: %d'%alpha
+                # create the graph
+                g = maxflow.GraphFloat()
+                g.add_nodes(n_nodes)
+
+                for node_index in xrange(n_nodes):
+#                   print "node: ", node_index
+                    label = labels[node_index]
+                    # TBD
+                    t1 = self.vector_sum( np.multiply( w[:num_unary_feature],D[node_index][alpha] ))
+                    t2 = sys.maxint
+                    if label != alpha:
+                        t2 = self.vector_sum( np.multiply( w[:num_unary_feature],D[node_index][label] ))
+#print t1, t2
+                    g.add_tedge(node_index, t1, t2)
+                    if node_index not in edge_dict.keys():
+                        continue
+                        
+                    for (_id, edge) in edge_dict[node_index]:
+                        assert edge[0] == node_index
+                        nnode_index = edge[1]
+                        nlabel = labels[nnode_index]
+                        nnstates = self.states ** 2 
+                        dist_label_alpha = sum([ np.mean([w[num_unary_feature:]*v[_id][label][alpha],w[ num_unary_feature:]*v[_id][alpha][nlabel]])] )
+
+                        if label == nlabel:
+                            g.add_edge(node_index, nnode_index, dist_label_alpha, dist_label_alpha)
+                            continue
+                        # if labelk are different , add an extra node
+                        dist_nlabel_alpha = sum([ np.mean([w[num_unary_feature:]*v[_id][nlabel][alpha],w[ num_unary_feature:]*v[_id][alpha][nlabel]])])
+                        dist_label_nlabel =  sum([ np.mean([w[num_unary_feature:]*v[_id][label][nlabel],w[ num_unary_feature:]*v[_id][nlabel][label]])])
+                        assert(dist_label_alpha + dist_nlabel_alpha >= dist_label_nlabel)
+                        extra_node = g.add_nodes(1)
+                        g.add_tedge(extra_node, 0, dist_label_nlabel)
+                        g.add_edge(node_index, extra_node, dist_label_alpha, dist_label_alpha)
+                        g.add_edge(nnode_index, extra_node, dist_nlabel_alpha, dist_nlabel_alpha)
+#                       print "add a new node, with tweight %f, weight to two end notes(%f, %f)"%(dist_label_nlabel, dist_label_alpha, dist_nlabel_alpha)
+
+                energy = g.maxflow()
+                for node_index in xrange(n_nodes):
+                    if g.get_segment(node_index) == 1: # SINK = 1, SOUCE = 0
+                        labels[node_index] = alpha
+
+                print energy, labels 
+                if energy < best_energy:
+                    success = 1
+                    best_energy = energy
+                    print "Energy of the last cut (alpha = %r): %r"%(alpha, energy)
+
+                if not success:
+                    print 'failed!'
+                    break
+        return labels
+
+               
+
 
 def pickle_save(fname, data):
     with open(fname, 'wb') as output:
@@ -433,15 +484,20 @@ def _tolist(ndarray):
         else:
             elem_list.append(sub_elem)
     return elem_list 
+
+
+def LOG(log_level, mesg):
+    if log_level == DEBUG and mode == DEBUG:
+        print mesg
+
 if __name__ == '__main__':
         
     file_p = 'data/mat/'
     samples = loadmat(file_p + 'sample.mat')['Train']
     config = loadmat(file_p + 'config.mat')['Config']
     test = loadmat(file_p + 'Test_fg_three_13_17_112.mat')['Test']
-    train_flag = 1 
     model_file = 'model.pkl'
-    if train_flag:
+    if oper == 'train':
         crf_instance = CRF_SOLVER(config)
         trainX = np.array(samples['seq'])
         tmpY = np.array(samples['label'])
@@ -453,8 +509,16 @@ if __name__ == '__main__':
         pickle_save(model_file,crf_instance)
         pdb.set_trace()
 
-    else:
+    elif oper == 'test':
         crf_instance = pickle_load(model_file)
+#crf_instance.w = [-0.82378552, -1.16889145, -0.80623083,  0.50265313,  0.50306962, 0.50292155]
+#        (crf_instance.n_nodes, _) = np.shape(crf_instance.mapper)
+        testX = np.array(test['seq']);
+        print crf_instance.predict(testX)
+        pdb.set_trace()
+    else:
+        print 'Unsupported Operation.'
+        sys.exit()
 
 #labels = crf_instance.predict(test_case, 1)
 #crf_instance.score(trainX, trainY)
