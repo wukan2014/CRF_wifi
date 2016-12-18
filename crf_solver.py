@@ -5,14 +5,19 @@ import pdb
 import itertools
 import pickle
 import sys
+from random import shuffle as shuffle
 RELEASE = 'release'
 DEBUG = 'debug'
-mode =  sys.argv[1]
+mode = sys.argv[1]
+
+
 def LOG(log_level, mesg):
     if log_level == DEBUG and mode == DEBUG:
         print mesg
 
 ITER_ROUND = 10
+
+
 class CRF_SOLVER(object):
     def __init__(self, config):
         self.grid = np.array(config['grid'])
@@ -27,14 +32,14 @@ class CRF_SOLVER(object):
         self.nbins = (self.rss_end - self.rss_start)/self.rss_step
 
     def rss_range(self, val):
-        return int(np.floor(( val - self.rss_start) / (self.rss_end - self.rss_start ) * self.nbins )) 
+        return int(np.floor((val - self.rss_start) / (self.rss_end - self.rss_start ) * self.nbins ))
         
     def objective_and_gradients_batch(self, w, seqs, labels, flag):
-        (sample_len, dim) = np.shape( seqs )
+        (sample_len, dim) = np.shape(seqs)
         logl = 0.
         sigma2 = 10.
         lambda_ = 1./2/sigma2
-        g = np.zeros(len(w))
+        g = np.zeros((len(w), 1))
         for i in xrange(sample_len):
             cur_seq = seqs[i]
             cur_label = labels[i]
@@ -74,10 +79,10 @@ class CRF_SOLVER(object):
             logl += logp + np.log(Z)
             g += g_tmp
             if i % ITER_ROUND == 0: 
-                LOG(RELEASE, 'Processing sample %d/%d, l: %f'%(i, sample_len, logl ))
+                LOG(RELEASE, 'Processing sample %d/%d, l: %f' % (i, sample_len, logl))
                 LOG(RELEASE, g)
         for k in xrange(len(g)):
-            g[k] += 2* lambda_* w[k]
+            g[k] += 2 * lambda_ * w[k]
         logl += lambda_*sum(w**2)
         return logl, g
 
@@ -94,9 +99,37 @@ class CRF_SOLVER(object):
         (_, voxel_num) = np.shape(trainY)
         #w  = self.BFGS(dim* 2, trainX, trainY)
         w = np.zeros((dim*2, 1))
-        [w,f,d] = op.fmin_l_bfgs_b(self.objective_and_gradients_batch, w, fprime = None, args=(trainX, trainY, 1), disp=2 )
+        [w, f, d] = op.fmin_l_bfgs_b(self.objective_and_gradients_batch, w, fprime = None, args=(trainX, trainY, 1), disp=2)
         pdb.set_trace()
-        print 'minimum_function: %f'%f
+        print 'minimum_function: %f' % f
+        print w
+
+    def SGD_Trainer(self, trainX, trainY):
+        (num_samples, dim) = np.shape(trainX)
+        (_, voxel_num) = np.shape(trainY)
+        w = np.zeros((dim*2, 1))
+        pre_f = 0
+        learn_rate = 0.00001
+        exit_error = 0.000001
+        batch_size = 100
+        order = list(range(num_samples))
+        epoch = 0
+        while(1):
+            print 'epoch: %d begins' % (epoch)
+            shuffle(order)
+            for i in xrange(num_samples / batch_size):
+                batch_x = trainX[order[int(i)*batch_size:int(i)*batch_size+batch_size]]
+                batch_y = trainY[order[int(i)*batch_size:int(i)*batch_size+batch_size]]
+                [f, g] = self.objective_and_gradients_batch(w, batch_x, batch_y, 1)
+                w -= learn_rate * g
+                print 'f at after batch %d: %f' % (i, f)
+            if abs(f - pre_f) / f <= exit_error:
+                break
+            pre_f = f
+            print 'epoch: %d ends' % (epoch)
+            epoch += 1
+        pdb.set_trace()
+        print 'minimum_function: %f' % f
         print w
 
     def BFGS(self, D, trainX, trainY, epsilon=0.001):
@@ -112,14 +145,14 @@ class CRF_SOLVER(object):
             w_old, B_old = w_new, B_new
             d = -np.dot(np.linalg.inv(B_old), g_old)
             LOG( RELEASE, 'Round %d, error: %f'%(num_iter, sum(abs(d))))
-#mu = self.max_step(0, trainX, trainY, w_old,d)
+# mu = self.max_step(0, trainX, trainY, w_old,d)
             mu = self.max_step(1, num_iter)
-            w_new = w_old + mu* d
+            w_new = w_old + mu * d
             g_new, l_new = self.objective_and_gradients_batch(trainX, trainY, w_new, 0)
             y = g_new - g_old
             # tmp terms: 
-            y = y[:,np.newaxis]
-            d = d[:,np.newaxis]
+            y = y[:, np.newaxis]
+            d = d[:, np.newaxis]
             dyt = np.dot(d, y.transpose())
             ddt = np.dot(d, d.transpose())
             ytd = np.dot(y.transpose(), d)
@@ -142,8 +175,8 @@ class CRF_SOLVER(object):
             trainY_ = args[1]
             w_old = args[2]
             d = args[3]
-            for mu in np.arange(0,1,0.1):
-                g, l = self.objective_and_gradients_batch(trainX_, trainY_, w_old + mu*d ) 
+            for mu in np.arange(0, 1, 0.1):
+                g, l = self.objective_and_gradients_batch(trainX_, trainY_, w_old + mu*d)
                 if l > maxl:
                     maxl = l
                     max_mu = mu
@@ -152,31 +185,31 @@ class CRF_SOLVER(object):
                 raise IOError
             mu_init = 1
             num_iter = args[0]
-            max_mu = mu_init * 1./ num_iter
+            max_mu = mu_init * 1. / num_iter
         return max_mu
 
-    def unary_func(self, node, dim, state, value ):
+    def unary_func(self, node, dim, state, value):
         if node < 0:
             return 0
         return -np.log(self.histo[node][dim][int(state)][self.rss_range(value)])
 
     def pairwise_func(self, edge, dim, state, value):
-        return (1 + np.exp(-( self.histo[edge[0]][dim][int(state[0])][self.rss_range(value)] 
-                            - self.histo[edge[1]][dim][int(state[1])][self.rss_range(value)]
-                            )**2))/2 
+        return (1 + np.exp(-(self.histo[edge[0]][dim][int(state[0])][self.rss_range(value)]
+                             - self.histo[edge[1]][dim][int(state[1])][self.rss_range(value)]
+                             )**2))/2
 
     def get_unary_features(self, data, nodes, labels):
         num_unary_feature = len(data)
-        return np.array([ [ self.unary_func(node, j, state, data[j] )
-                                        for j in xrange(num_unary_feature) ]
-                                        for node, state in zip(nodes, labels)]) 
+        return np.array([[self.unary_func(node, j, state, data[j])
+                          for j in xrange(num_unary_feature)]
+                         for node, state in zip(nodes, labels)])
                              
     def get_pairwise_features(self, data, edges, labels):
         num_pairwise_feature = len(data)
-        return np.array([[ self.pairwise_func(edge, j, [labels[edge[0]], labels[edge[1]]], data[j])
-                                        if labels[edge[0]] != labels[edge[1]] else 0 
-                                        for j in xrange(num_pairwise_feature) ] 
-                                        for edge in edges ])
+        return np.array([[self.pairwise_func(edge, j, [labels[edge[0]], labels[edge[1]]], data[j])
+                          if labels[edge[0]] != labels[edge[1]] else 0
+                          for j in xrange(num_pairwise_feature)]
+                         for edge in edges])
 
 
         
@@ -196,7 +229,7 @@ class CRF_SOLVER(object):
         #for state in xrange(states):
         #    _sum += sum([ w[state*num_unary_feature + k]* unary_features[i][k] if label[i] == state for k in xrange(num_unary_feature) for i in xrange(num_nodes) ])
         unary_features = self.get_unary_features(data, nodes, labels)
-        _sum += sum([ w[k]* unary_features[i][k] for k in xrange(num_unary_feature) for i in xrange(num_nodes) ])
+        _sum += sum([w[k] * unary_features[i][k] for k in xrange(num_unary_feature) for i in xrange(num_nodes)])
         return _sum
 
     def pairwise_sum(self, w, data, edges, labels):
@@ -216,7 +249,7 @@ class CRF_SOLVER(object):
         #    _sum += sum([ w[state_index * num_pairwise_feature + k]* pairwise_features[i][k] if labels[t[0]] == state1 and labels[t[1]] == state2 for k in xrange(num_pairwise_feature) for i, t in enumerate(edges) ])
         if num_edges > 0:
             pairwise_features = self.get_pairwise_features(data, edges, labels)
-            _sum += sum([ w[k]* pairwise_features[i][k] for k in xrange(num_pairwise_feature) for i, t in enumerate(edges) ])
+            _sum += sum([w[k] * pairwise_features[i][k] for k in xrange(num_pairwise_feature) for i, t in enumerate(edges)])
         return _sum
 
     def get_Td(self, grid, d, edges, pre_nodes):
@@ -227,7 +260,7 @@ class CRF_SOLVER(object):
         while x >= 1 and d - x + 1 <= N:
             node_id = [x, d + 1 - x]
             x -= 1
-            node =  np.where(np.all(self.mapper == node_id, axis = 1))    
+            node = np.where(np.all(self.mapper == node_id, axis=1))
             if len(node) != 0:
                 cur_nodes.append(node[0][0])
         for i, t in enumerate(edges):
@@ -236,7 +269,7 @@ class CRF_SOLVER(object):
         sub_edges = edges[sub_edges_index]
         return cur_nodes, sub_edges
 
-    def compute_M(self, grid, w, edges, seq,voxel_num, states):
+    def compute_M(self, grid, w, edges, seq, voxel_num, states):
         num_unary_features = len(seq)
         (M, N) = np.shape(grid)
         Md = [] 
@@ -249,7 +282,7 @@ class CRF_SOLVER(object):
             cur_labels = list(itertools.product([i for i in xrange(states)], repeat=len(cur_nodes))) 
             Md_tmp = np.ones((states ** len(pre_nodes), states ** len(cur_nodes)))
             for j, curl in enumerate(cur_labels):
-                u_sum = self.unary_sum(w[0 : num_unary_features], seq, cur_nodes, curl)
+                u_sum = self.unary_sum(w[0:num_unary_features], seq, cur_nodes, curl)
                 for i, prel in enumerate(pre_labels):
                     label = np.zeros(voxel_num)
                     if d != M + N:
@@ -272,7 +305,7 @@ class CRF_SOLVER(object):
         # initial
         alpha.append([1,0])
         for d in xrange(1, M + N + 1):
-            alpha.append(np.dot( alpha[d-1], Md[d-1]) )
+            alpha.append(np.dot(alpha[d-1], Md[d-1]))
         return alpha
 
     def compute_beta_score(self, grid, states, Md):
@@ -280,7 +313,7 @@ class CRF_SOLVER(object):
         beta, reverse_beta = [], []
         # initial
         beta.append([1,0])
-        for d in xrange(1, M + N + 1 ):
+        for d in xrange(1, M + N + 1):
             beta.append(np.transpose(np.dot(Md[M + N - d], beta[d - 1])))
         for b in reversed(beta):
             reverse_beta.append(b)
@@ -289,34 +322,34 @@ class CRF_SOLVER(object):
     def compute_marginal(self, grid, edges, states, Z, alpha, beta, Md):
         (M, N) = np.shape(grid)
         num_edges = len(edges)
-        prod = np.zeros((states, M*N) )
-        pairwise_prod = np.zeros((states** 2, num_edges ))
+        prod = np.zeros((states, M*N))
+        pairwise_prod = np.zeros((states ** 2, num_edges))
         pre_nodes = [-1]
         pre_labels = [-1]
         for d in xrange(1, M + N):
-            cur_nodes, sub_edges = self.get_Td(grid,d, edges, pre_nodes)
+            cur_nodes, sub_edges = self.get_Td(grid, d, edges, pre_nodes)
             cur_labels = list(itertools.product([i for i in xrange(states)], repeat=len(cur_nodes))) 
             # marginal for unary
             for i, node in enumerate(cur_nodes):
                 for state in xrange(states):
-                    ci = [ j for j, labels in enumerate(cur_labels) if labels[i] == state]
-                    prod[state][node] = sum( np.multiply(alpha[d][ci], beta[d][ci]) )/Z
+                    ci = [j for j, labels in enumerate(cur_labels) if labels[i] == state]
+                    prod[state][node] = sum(np.multiply(alpha[d][ci], beta[d][ci]))/Z
             for si, sub_edge in enumerate(sub_edges):
                 (s, t) = sub_edge
                 for state_id in xrange(states**2):
                     state1 = state_id/states
                     state2 = state_id%states
-                    edge_id = np.where(np.all(edges == sub_edge, axis = 1))[0][0]    
+                    edge_id = np.where(np.all(edges == sub_edge, axis=1))[0][0]
                     if s in cur_nodes:
                         ni = np.where(cur_nodes == s)[0][0]
                         pni = np.where(pre_nodes == t)[0][0]    
                     else:
                         ni = np.where(cur_nodes == t)[0][0]
                         pni = np.where(pre_nodes == s)[0][0]    
-                        ci = [j for j, curl in enumerate(cur_labels) if curl[ni] == state1 ]
-                        pi = [j for j, prel in enumerate(pre_labels) if prel[pni] == state2 ]
+                        ci = [j for j, curl in enumerate(cur_labels) if curl[ni] == state1]
+                        pi = [j for j, prel in enumerate(pre_labels) if prel[pni] == state2]
                         # sum over alpha_{d_2}(T'_{d-1}|x)*Md(T'_{d-1}, T_d | x)*beta_d(Td|x)
-                        pairwise_prod[state_id][edge_id] = sum(sum(np.einsum('i,ij,j->ij',alpha[d-1][pi], Md[d-1][np.ix_(pi,ci)], beta[d][ci])))/Z
+                        pairwise_prod[state_id][edge_id] = sum(sum(np.einsum('i,ij,j->ij', alpha[d-1][pi], Md[d-1][np.ix_(pi, ci)], beta[d][ci])))/Z
             pre_nodes = cur_nodes
             pre_labels = cur_labels 
         return prod, pairwise_prod 
@@ -324,7 +357,7 @@ class CRF_SOLVER(object):
     def vector_sum(self, vec):
         if not isinstance(vec, list) and not isinstance(vec, np.ndarray):
             return vec
-        while isinstance(vec,list) or isinstance(vec, np.ndarray):
+        while isinstance(vec, list) or isinstance(vec, np.ndarray):
             vec = sum(vec)
         return vec
 
@@ -345,21 +378,21 @@ class CRF_SOLVER(object):
             em_unary_features = self.get_unary_features(seq, cur_nodes, label)
             em_pairwise_features = self.get_pairwise_features(seq, sub_edges, label)
 
-            logp += sum([ w[k]* em_unary_features[i][k] for k in xrange(num_unary_features) for i,t in enumerate(cur_nodes) ])
+            logp += sum([w[k]* em_unary_features[i][k] for k in xrange(num_unary_features) for i, t in enumerate(cur_nodes)])
             if len(sub_edges) > 0:
-                logp += sum([ w[k + num_unary_features]* em_pairwise_features[i][k] for k in xrange(num_pairwise_features) for i, t in enumerate(sub_edges) ])
+                logp += sum([w[k + num_unary_features] * em_pairwise_features[i][k] for k in xrange(num_pairwise_features) for i, t in enumerate(sub_edges)])
     
             ## probability labels
             if flag != 2:
                 for k in xrange(num_unary_features):
-                    g[k] += sum( em_unary_features[:,k] ) - sum([ (self.get_unary_features(seq, [node], [state]))[0][k]* prod[state][node] for node in cur_nodes for state in xrange(states) ])   
+                    g[k] += sum( em_unary_features[:, k]) - sum([(self.get_unary_features(seq, [node], [state]))[0][k] * prod[state][node] for node in cur_nodes for state in xrange(states)])
                 pb_label = list(label)
                 for k in xrange(num_pairwise_features):
                     if len(sub_edges) == 0:
                         break 
-                    tmp = self.vector_sum(em_pairwise_features[:,k]) 
+                    tmp = self.vector_sum(em_pairwise_features[:, k])
                     for edge in sub_edges:
-                        LOG(DEBUG, 'edge [%d, %d]'%(edge[0], edge[1]))
+                        LOG(DEBUG, 'edge [%d, %d]' % (edge[0], edge[1]))
                         for state_id in xrange(states**2):
                             state1 = state_id / states
                             state2 = state_id % states
@@ -367,10 +400,10 @@ class CRF_SOLVER(object):
                             pb_label[edge[0]] = state1
                             pb_label[edge[1]] = state2
                             cur_f = self.get_pairwise_features(seq, [edge], pb_label)
-                            edge_id = np.where(np.all(edges == edge, axis = 1))[0][0]    
-                            tmp -= cur_f[0][k]* pairwise_prod[state_id][edge_id]
+                            edge_id = np.where(np.all(edges == edge, axis=1))[0][0]
+                            tmp -= cur_f[0][k] * pairwise_prod[state_id][edge_id]
                     g[k + num_unary_features] += tmp
-                    LOG(DEBUG, 'feature %d, gradient %lf'%(k,tmp))
+                    LOG(DEBUG, 'feature %d, gradient %lf' % (k, tmp))
             pre_nodes = cur_nodes
             pre_labels = cur_labels
         return g, logp
@@ -378,7 +411,7 @@ class CRF_SOLVER(object):
 def pickle_save(fname, data):
     with open(fname, 'wb') as output:
         pickle.dump(data, output, pickle.HIGHEST_PROTOCOL)
-        print "saved to %s"%fname
+        print "saved to %s" % fname
 
 def pickle_load(fname):
     with open(fname, 'rb') as _input:
@@ -413,7 +446,7 @@ def _todict(matobj):
         elem = matobj.__dict__[strg]
         if isinstance(elem, spio.matlab.mio5_params.mat_struct):
             dict[strg] = _todict(elem)
-        elif isinstance(elem,np.ndarray):
+        elif isinstance(elem, np.ndarray):
             dict[strg] = _tolist(elem)
         else:
             dict[strg] = elem
@@ -450,8 +483,8 @@ if __name__ == '__main__':
         trainY = np.zeros((len(tmpY), voxel_num))
         for i, y in enumerate(tmpY):
             trainY[i][y-1] = 1
-        crf_instance.trainer(trainX, trainY)
-        pickle_save(model_file,crf_instance)
+        crf_instance.SGD_Trainer(trainX, trainY)
+        pickle_save(model_file, crf_instance)
         pdb.set_trace()
 
     else:
