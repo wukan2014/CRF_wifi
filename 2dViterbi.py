@@ -7,6 +7,8 @@ Y = np.zeros((N,M)) # state matrix with all nodes
 NumberOfStateWithANode = 2
 weightForNodeFeature = 1  # lamda_k
 weightForEdgeFeature = 1  # miu_k
+viterbiMaxMatrix = [] # N+M+1 row, pow(2,Sd(d)) colomn
+viterbiArgMaxMatrix = [] # N+M+1 row, pow(2,Sd(d)) colomn
 
 def T_values(d):   # nodes states in Td
     td_values = []
@@ -69,12 +71,12 @@ def edgeFeatureFunction(edge,x):
     return 1
 
 def Md_entry(Td_1assignment, Td_assignment,d,x): #Md(Td-1,Td |x)
-    energe = 0
+    energy = 0
     for edge in Ed(d):
-        energe += weightForNodeFeature * edgeFeatureFunction(Td_1assignment[nodeNumberInTd(edge[0])], Td_assignment[nodeNumberInTd(edge[1])], x)
+        energy += weightForNodeFeature * edgeFeatureFunction(Td_1assignment[nodeNumberInTd(edge[0])], Td_assignment[nodeNumberInTd(edge[1])], x)
     for node in T_nodes(d):
-        energe += weightForNodeFeature * nodeFeatureFunction(Td_assignment[nodeNumberInTd(node[1])],x)
-    return math.exp(energe)
+        energy += weightForNodeFeature * nodeFeatureFunction(Td_assignment[nodeNumberInTd(node[1])], x)
+    return math.exp(energy)
 
 def decimalToNBaseByNormal(decimalVar, base,length):
     tempList = []
@@ -104,10 +106,13 @@ def assignmentsInTd(d):
         assignments.append(decimalToNBaseByNormal(i, NumberOfStateWithANode, Sd(d)))
     return assignments
 
-for d in range(0,N+M+1):
-    print T_nodes(d),Sd(d)
-    for node in T_nodes(d):
-        print nodeNumberInTd(node)
+def numberOfAssignmentsInTd(d):
+    return int(math.pow(NumberOfStateWithANode, Sd(d)))
+
+# for d in range(0,N+M+1):
+#     print T_nodes(d),Sd(d)
+#     for node in T_nodes(d):
+#         print nodeNumberInTd(node)
 
 
 def Md_matrix(d,x):
@@ -131,7 +136,38 @@ def problity_givenX(assignments,x):
         lastAssignment = assignment
     return value / Z(x)
 
-        
+def viterbi(x):
+    viterbiArgMaxMatrix.append([])
+    maxValues = []
+    for assignment in assignmentsInTd(1):
+        maxValues.append(Md_entry([], assignment, 1,x))
+    viterbiMaxMatrix.append(maxValues)
+    for d in range(2,N+M+1):
+        maxValues = []
+        argMax = [] # from which assignment
+        for assignment in assignmentsInTd(d):
+            tempMax = -1
+            tempArgMax = -1
+            for index,lastAssignment in enumerate(assignmentsInTd(d-1)) :
+                currentValue = viterbiMaxMatrix[d-1][index]* Md_entry(lastAssignment,assignment,d,x)
+                if currentValue > tempMax:
+                    tempArgMax = (index,lastAssignment)
+                    tempMax = currentValue
+            maxValues.append(tempMax)
+            argMax.append(tempArgMax)
+        viterbiMaxMatrix.append(maxValues)
+        viterbiArgMaxMatrix.append(argMax)
+    optimimum_assignment = []
+    lastIndex = viterbiArgMaxMatrix[M+N][0][0]
+    lastAssignment = viterbiArgMaxMatrix[M+N][0][1]
+    optimimum_assignment.insert(0, lastAssignment)
+    for d in range(M+N-1,-1,-1):
+        lastIndex = viterbiArgMaxMatrix[d][lastIndex][0]
+        lastAssignment = viterbiArgMaxMatrix[d][lastIndex][1]
+        optimimum_assignment.insert(0, lastAssignment)
+    print viterbiMaxMatrix,viterbiArgMaxMatrix,optimimum_assignment
+    return optimimum_assignment
+
 
 
 
