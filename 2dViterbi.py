@@ -72,11 +72,18 @@ def edgeFeatureFunction(edge,x):
 
 def Md_entry(Td_1assignment, Td_assignment,d,x): #Md(Td-1,Td |x)
     energy = 0
-    for edge in Ed(d):
-        energy += weightForNodeFeature * edgeFeatureFunction(Td_1assignment[nodeNumberInTd(edge[0])], Td_assignment[nodeNumberInTd(edge[1])], x)
-    for node in T_nodes(d):
-        energy += weightForNodeFeature * nodeFeatureFunction(Td_assignment[nodeNumberInTd(node[1])], x)
-    return math.exp(energy)
+    if Td_1assignment == []:
+        for node in T_nodes(d):
+            energy += weightForNodeFeature * nodeFeatureFunction(Td_assignment[nodeNumberInTd(node[1])], x)
+        return math.exp(energy)
+    elif Td_assignment == []:
+        return 1
+    else:
+        for edge in Ed(d):
+            energy += weightForNodeFeature * edgeFeatureFunction(Td_1assignment[nodeNumberInTd(edge[0])], Td_assignment[nodeNumberInTd(edge[1])], x)
+        for node in T_nodes(d):
+            energy += weightForNodeFeature * nodeFeatureFunction(Td_assignment[nodeNumberInTd(node[1])], x)
+        return math.exp(energy)
 
 def decimalToNBaseByNormal(decimalVar, base,length):
     tempList = []
